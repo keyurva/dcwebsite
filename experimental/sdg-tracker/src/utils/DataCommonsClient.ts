@@ -14,8 +14,13 @@
  * limitations under the License.
  */
 
+import {
+  BulkObservationExistenceRequest,
+  DetectRequest,
+  FulfillResponse,
+  FullfillRequest,
+} from "./types";
 import { Place } from "../state";
-import { DetectRequest, FulfillResponse, FullfillRequest } from "./types";
 
 interface DatacommonsClientParams {
   apiRoot?: string;
@@ -85,6 +90,19 @@ class DataCommonsClient {
       })
     })
     return result;
+  }
+
+  async existence(payload: BulkObservationExistenceRequest): Promise<any> {
+    // TODO: change to using apiRoot once the unsdg version is updated.
+    const url = `https://dev.datacommons.org/api/observation/existence`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    return (await response.json()) as any;
   }
 }
 export default DataCommonsClient;

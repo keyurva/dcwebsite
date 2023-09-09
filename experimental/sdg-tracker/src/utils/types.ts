@@ -143,3 +143,11 @@ export interface DetectResponse {
   sessionId: string;
   variables?: string[];
 }
+
+/**
+ * API request for /v1/bulk/observation-existence
+ */
+export interface BulkObservationExistenceRequest {
+  variables: string[];
+  entities: string[];
+}

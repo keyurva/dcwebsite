@@ -35,7 +35,7 @@ import sidebarConfig from "../config/sidebar.json";
 import targetText from "../config/targetText.json";
 import { WEB_API_ENDPOINT } from "../utils/constants";
 import DataCommonsClient from "../utils/DataCommonsClient";
-import { FulfillResponse } from "../utils/types";
+import { BulkObservationExistenceRequest, FulfillResponse } from "../utils/types";
 
 export const dataCommonsClient = new DataCommonsClient({
   apiRoot: WEB_API_ENDPOINT,
@@ -145,8 +145,15 @@ export interface AppModel {
       [key: string]: FulfillResponse;
     };
   };
+  // Cache existences by place DCID
+  existingTopicDcids: {
+    byPlaceDcid: {
+      [placeDcid: string]: Set<string>;
+    };
+  };
   sidebarMenuHierarchy: MenuItemType[];
   rootTopics: RootTopic[];
+  topicDcids: string[];
   goalSummaries: {
     byGoal: {
       [key: string]: GoalText;
@@ -168,6 +175,7 @@ export interface AppModel {
 export interface AppActions {
   // Actions (these manipulate state directly)
   setTopics: Action<AppModel, Topic[]>;
+  setTopicDcids: Action<AppModel, string[]>;
   setRootTopics: Action<AppModel, RootTopic[]>;
   setSidebarMenuHierarchy: Action<AppModel, MenuItemType[]>;
   setCountries: Action<AppModel, Place[]>;
@@ -179,6 +187,10 @@ export interface AppActions {
     AppModel,
     { key: string; fulfillment: FulfillResponse }
   >;
+  setExistingTopicDcids: Action<
+    AppModel,
+    { placeDcid: string; existingTopicDcids: Set<string> }
+  >;
 
   // Thunks (async methods that do not manipulate the state directly)
   fetchTopicFulfillment: Thunk<
@@ -189,6 +201,16 @@ export interface AppActions {
         [key: string]: FulfillResponse;
       };
       variableDcids: string[];
+    }
+  >;
+  fetchExistence: Thunk<
+    AppActions,
+    {
+      placeDcid: string;
+      topicDcids: string[];
+      existencesByPlaceDcid: {
+        [placeDcid: string]: Set<string>;
+      };
     }
   >;
   initializeAppState: Thunk<AppActions>;
@@ -212,7 +234,11 @@ const appModel: AppModel = {
   fulfillments: {
     byId: {},
   },
+  existingTopicDcids: {
+    byPlaceDcid: {},
+  },
   rootTopics: [],
+  topicDcids: [],
   sidebarMenuHierarchy: [],
   goalSummaries: {
     byGoal: {},
@@ -248,6 +274,7 @@ const appActions: AppActions = {
     actions.setIndicatorHeadlines(indicatorHeadlines);
     actions.setTargetText(targetText);
     const topics: Topic[] = [];
+    const topicDcids: string[] = [];
     const traverseTopics = (item: MenuItemType) => {
       if (!item.key.startsWith("dc")) {
         return;
@@ -257,11 +284,13 @@ const appActions: AppActions = {
         name: item.label,
         parentDcids: item.parents,
       });
+      topicDcids.push(item.key.replace("summary-", ""));
       item.children &&
         item.children.forEach((childItem) => traverseTopics(childItem));
     };
     sidebarConfig.forEach((item) => traverseTopics(item));
     actions.setTopics(topics);
+    actions.setTopicDcids(topicDcids);
   }),
 
   fetchTopicFulfillment: thunk(
@@ -286,6 +315,34 @@ const appActions: AppActions = {
         fulfillment,
       });
       return fulfillment;
+    }
+  ),
+
+  fetchExistence: thunk(
+    async (actions, { placeDcid, topicDcids, existencesByPlaceDcid }) => {
+      if (placeDcid in existencesByPlaceDcid) {
+        return existencesByPlaceDcid[placeDcid];
+      }
+      const request: BulkObservationExistenceRequest = {
+        entities: [placeDcid],
+        variables: topicDcids,
+      };
+      const response = await dataCommonsClient.existence(request);
+
+      const existingTopicDcids = new Set<string>();
+      for (const topicDcid in response) {
+        const exists = response[topicDcid];
+        for (const key in exists) {
+          if (exists[key]) {
+            existingTopicDcids.add(topicDcid);
+          }
+        }
+      }
+      actions.setExistingTopicDcids({
+        placeDcid,
+        existingTopicDcids,
+      });
+      return existingTopicDcids;
     }
   ),
   setCountries: action((state, countries) => {
@@ -313,11 +370,17 @@ const appActions: AppActions = {
   setRootTopics: action((state, rootTopics) => {
     state.rootTopics = [...rootTopics];
   }),
+  setTopicDcids: action((state, topicDcids) => {
+    state.topicDcids = [...topicDcids];
+  }),
   setSidebarMenuHierarchy: action((state, items) => {
     state.sidebarMenuHierarchy = [...items];
   }),
   setFulfillment: action((state, { key, fulfillment }) => {
     state.fulfillments.byId[key] = { ...fulfillment };
+  }),
+  setExistingTopicDcids: action((state, { placeDcid, existingTopicDcids }) => {
+    state.existingTopicDcids.byPlaceDcid[placeDcid] = new Set(existingTopicDcids);
   }),
   setGoalSummaries: action((state, goalSummaries) => {
     state.goalSummaries.byGoal = {};

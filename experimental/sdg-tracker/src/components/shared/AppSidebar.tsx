@@ -16,9 +16,10 @@
 
 import { Layout, Menu } from "antd";
 import SubMenu from "antd/lib/menu/SubMenu";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import styled from "styled-components";
-import { MenuItemType, useStoreState } from "../../state";
+import { MenuItemType, useStoreState, useStoreActions } from "../../state";
+
 const { Sider } = Layout;
 
 const MenuTitle = styled.div`
@@ -38,14 +39,33 @@ const StyledMenu = styled(Menu)`
 `;
 
 const AppSidebar: React.FC<{
+  placeDcid: string;
   variableDcid: string;
   setVariableDcid: (variableDcid: string) => void;
-}> = (props) => {
-  const { setVariableDcid, variableDcid } = props;
+}> = ({ placeDcid, variableDcid, setVariableDcid }) => {
   const sidebarMenuHierarchy = useStoreState((s) => s.sidebarMenuHierarchy);
   const [siderHidden, setSiderHidden] = useState<boolean>(false);
+  const topicDcids = useStoreState((s) => s.topicDcids);
+  const existencesByPlaceDcid = useStoreState((s) => s.existingTopicDcids.byPlaceDcid);
+  const fetchExistence = useStoreActions((a) => a.fetchExistence);
+  const [isExistenceFetched, setIsExistenceFetched] = useState(false);
+  const [existingTopicDcids, setExistingTopicDcids] =
+    useState<Set<string>>();
+
+  const menuItemTypeFilter = (item: MenuItemType) =>
+    !existingTopicDcids ||
+    existingTopicDcids?.has(item.key) ||
+    existingTopicDcids?.has(`summary-${item.key}`);
+
+  const anyMenuItemFilter = (items: MenuItemType[]) => {
+    if (!items || items.length === 0) {
+      return false;
+    }
+    return items.some(menuItemTypeFilter);
+  }
+
   const getMenuItem = (item: MenuItemType) => {
-    if (item.children && item.children.length > 0) {
+    if (anyMenuItemFilter(item.children || [])) {
       return (
         <SubMenu
           className={`-dc-sidebar-submenu -dc-sidebar-submenu-${item.key}`}
@@ -53,7 +73,7 @@ const AppSidebar: React.FC<{
           title={item.label}
           icon={item.icon}
         >
-          {item.children.map((subItem) => getMenuItem(subItem))}
+          {item.children?.filter(menuItemTypeFilter).map((subItem) => getMenuItem(subItem))}
         </SubMenu>
       );
     }
@@ -68,8 +88,37 @@ const AppSidebar: React.FC<{
     );
   };
 
+  /**
+   * Fetch existences
+   */
+  useEffect(() => {
+    let isFetching = true;
+    if (!placeDcid || !topicDcids || topicDcids.length === 0) {
+      return;
+    }
+
+    (async () => {
+      const existingTopicDcids = await fetchExistence({
+        placeDcid,
+        topicDcids,
+        existencesByPlaceDcid,
+      });
+
+      if (isFetching) {
+        setIsExistenceFetched(true);
+        setSiderHidden(false);
+        setExistingTopicDcids(existingTopicDcids);
+      }
+    })();
+
+    return () => {
+      isFetching = false;
+    }
+  }, [placeDcid, topicDcids]);
+
   return (
     <Sider
+      key={placeDcid || "Earth"}
       breakpoint="lg"
       collapsedWidth="0"
       width={320}
@@ -91,7 +140,7 @@ const AppSidebar: React.FC<{
           setVariableDcid(item.key.replace("summary-", ""));
         }}
       >
-        {sidebarMenuHierarchy.map((vg) => getMenuItem(vg))}
+        {sidebarMenuHierarchy.filter(menuItemTypeFilter).map((vg) => getMenuItem(vg))}
       </StyledMenu>
     </Sider>
   );
