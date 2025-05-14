@@ -1,0 +1,4 @@
+fastmcp
+asyncio
+datacommons-client
+pandas
